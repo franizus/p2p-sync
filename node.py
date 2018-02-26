@@ -43,7 +43,6 @@ class MyHandler(PatternMatchingEventHandler):
         params.update({'flag': event.event_type})
         if event.event_type == 'moved':
             params.update({'dirMov': event.dest_path})
-        print(event)
         if event.is_directory and event.event_type == 'modified':
             pass
         else:
@@ -76,18 +75,37 @@ def watcher():
     observer.join()
 
 
-def client_thread(peer_ip):
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        client_socket.connect((peer_ip, PORT))
-    except socket.error as msg:
-        pass
+def send_client(client_socket):
+    while True:
+        try:
+            params = q.get()
+            if params is None:
+                pass
+            else:
+                print('send')
+                print(params)
+                client_socket.send(pickle.dumps(params))
+                data = client_socket.recv(1024)
+                if not params['isDir']:
+                    if params['flag'] == 'created' or params['flag'] == 'modified':
+                        f = open(params['dir'],'rb')
+                        l = f.read(1024)
+                        while (l):
+                            client_socket.send(l)
+                            l = f.read(1024)
+                        f.close()
+        except:
+            pass
 
+
+def listen_client(client_socket):
     while True:
         try:
             data = client_socket.recv(4096)
             if data:
+                print('listen')
                 params = pickle.loads(data)
+                print(params)
                 client_socket.send('gracias'.encode('ascii'))
                 if not params['isDir']:
                     if params['flag'] == 'created' or params['flag'] == 'modified':
@@ -110,48 +128,36 @@ def client_thread(peer_ip):
                         os.rmdir(params['dir'])
                     else:
                         os.makedirs(params['dirMov'])
-        except socket.error:
-            client_socket.close()
-
-    client_socket.close()
-
-
-def listen_client(client_socket):
-    while True:
-        try:
-            params = q.get()
-            if params is None:
-                pass
-            else:
-                client_socket.send(pickle.dumps(params))
-                data = client_socket.recv(1024)
-
-                if not params['isDir']:
-                    if params['flag'] == 'created' or params['flag'] == 'modified':
-                        f = open(params['dir'],'rb')
-                        l = f.read(1024)
-                        while (l):
-                            client_socket.send(l)
-                            l = f.read(1024)
-                        f.close()
-        except socket.error:
+        except:
             pass
+
+
+def client_thread(peer_ip):
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        client_socket.connect((peer_ip, PORT))
+    except socket.error as msg:
+        print(msg)
+
+    threading.Thread(target=send_client, args=(client_socket,)).start()
+    threading.Thread(target=listen_client, args=(client_socket,)).start()
 
 
 def server_thread(peers):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         server_socket.bind((HOST, PORT))
     except socket.error as msg:
         print(msg)
     server_socket.listen(10)
+    print('Servidor Iniciado')
     while 1:
         connection, address = server_socket.accept()
         if address[0] not in peers:
-            CLIENT_THREADS.append(threading.Thread(
-                target=client_thread, args=(address[0], )).start())
-        CONNECTION_THREADS.append(threading.Thread(
-            target=listen_client, args=(connection,)).start())
+            threading.Thread(target=send_client, args=(connection,)).start()
+            threading.Thread(target=listen_client, args=(connection,)).start()
 
     server_socket.close()
 
@@ -163,17 +169,19 @@ if __name__ == '__main__':
         os.makedirs(DIRECTORY)
     
     HOST = ''
-    PORT = 8891
+    PORT = 8883
     PEERS_LIST = []
-    CONNECTION_THREADS = []
-    CLIENT_THREADS = []
 
     q = queue.Queue()
     
-    get_connected_peers()
+    #get_connected_peers()
 
     threading.Thread(target=watcher, args=( )).start()
-    threading.Thread(target=server_thread, args=(PEERS_LIST, )).start()
+    thread = threading.Thread(target=server_thread, args=(PEERS_LIST, ))
+    thread.daemon=True
+    thread.start()
 
     for peer in PEERS_LIST:
-        CLIENT_THREADS.append(threading.Thread(target=client_thread, args=(peer, )).start())
+        thread = threading.Thread(target=client_thread, args=(peer, ))
+        thread.daemon=True
+        thread.start()

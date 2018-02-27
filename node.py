@@ -2,8 +2,6 @@ import os
 import time  
 import threading
 import socket
-import subprocess
-import shlex
 import sys
 import pickle
 import queue
@@ -14,25 +12,34 @@ from watchdog.events import PatternMatchingEventHandler
 from pathlib import Path
 
 
-def get_network_mask():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.connect(("8.8.8.8", 80))
-    ip_addr = sock.getsockname()[0]
-    ip_split = ip_addr.split('.')
-    net_addr = ''
-    for i in range(3):
-        net_addr += ip_split[i] + '.'
-    net_addr += '0/24'
-    return net_addr
+def getIP():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    ip = s.getsockname()[0]
+    s.close()
+    return ip
+
+
+def peers_server():
+    global PEERS_LIST
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        client_socket.connect(('192.168.100.185', 8888))
+    except socket.error as msg:
+        print(msg)
+    client_socket.send('request'.encode('ascii'))
+    data = client_socket.recv(1024)
+    if data:
+        PEERS_LIST = pickle.loads(data)
 
 
 def get_connected_peers():
-    args = shlex.split('nmap -oX ./ex.xml -p ' + str(PORT) +
-                       ' ' + get_network_mask() + ' --open')
-    subprocess.call(args)
-    xml_content = elt.parse('ex.xml').getroot()
-    for address in xml_content.iter('address'):
-        PEERS_LIST.append(address.get('addr'))
+    t1 = threading.Thread(target=peers_server, args=( ))
+    t1.start()
+    t1.join()
+    ip = getIP()
+    if ip in PEERS_LIST:
+        PEERS_LIST.remove(ip)
 
 
 class MyHandler(PatternMatchingEventHandler):
@@ -185,8 +192,9 @@ if __name__ == '__main__':
     PEERS_LIST = []
 
     q = queue.Queue()
-    
-    #get_connected_peers()
+
+    get_connected_peers()
+    print(PEERS_LIST)
 
     threading.Thread(target=watcher, args=( )).start()
     thread = threading.Thread(target=server_thread, args=(PEERS_LIST, ))

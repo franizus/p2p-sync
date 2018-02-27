@@ -36,10 +36,6 @@ def get_connected_peers():
 
 
 class MyHandler(PatternMatchingEventHandler):
-
-    def __init__(self):
-        super(MyHandler, self).__init__(ignore_patterns=["*/.*"])
-
     def process(self, event):
         if event.is_directory and event.event_type == 'modified':
             pass
@@ -93,19 +89,22 @@ def send_client(client_socket):
             else:
                 print('send')
                 print(params)
+                direct = params['dir']
                 params['dir'] = 'ps-' + params['dir']
                 client_socket.send(pickle.dumps(params))
-                data = client_socket.recv(1024)
                 if not params['isDir']:
                     if params['flag'] == 'created' or params['flag'] == 'modified':
-                        f = open(params['dir'],'rb')
-                        l = f.read(1024)
-                        while (l):
-                            client_socket.send(l)
-                            l = f.read(1024)
-                        f.close()
-        except:
-            pass
+                        with open(DIRECTORY + direct, 'rb') as fs:
+                            client_socket.send(b'BEGIN')
+                            while True:
+                                data = fs.read(1024)
+                                client_socket.send(data)
+                                if not data:
+                                    break
+                            client_socket.send(b'ENDED')
+                            fs.close()
+        except Exception as msg:
+            print(msg)
 
 
 def listen_client(client_socket):
@@ -119,15 +118,16 @@ def listen_client(client_socket):
                 client_socket.send('gracias'.encode('ascii'))
                 if not params['isDir']:
                     if params['flag'] == 'created' or params['flag'] == 'modified':
-                        with open(TEMP_DIRECTORY + params['dir'], 'wb') as f:
+                        with open(DIRECTORY + params['dir'], "wb") as fw:
                             while True:
-                                data = client_socket.recv(1024)
-                                if not data:
+                                data = client_socket.recv(32)
+                                if data == b'BEGIN':
+                                    continue
+                                elif data == b'ENDED':
                                     break
-                                f.write(data)
-                        f.close()
-                        copyfile(TEMP_DIRECTORY + params['dir'], DIRECTORY + params['dir'])
-                        os.remove(TEMP_DIRECTORY + params['dir'])
+                                else:
+                                    fw.write(data)
+                            fw.close()
                     elif params['flag'] == 'deleted':
                         os.remove(DIRECTORY + params['dir'])
                     else:
@@ -140,8 +140,8 @@ def listen_client(client_socket):
                         os.rmdir(DIRECTORY + params['dir'])
                     else:
                         os.makedirs(DIRECTORY + params['dirMov'])
-        except:
-            pass
+        except Exception as msg:
+            print(msg)
 
 
 def client_thread(peer_ip):
@@ -176,12 +176,9 @@ def server_thread(peers):
 
 if __name__ == '__main__':
     DIRECTORY = str(Path.home()) + '/p2pSync/'
-    TEMP_DIRECTORY = DIRECTORY + '.temp/'
 
     if not os.path.exists(DIRECTORY):
         os.makedirs(DIRECTORY)
-    if not os.path.exists(TEMP_DIRECTORY):
-        os.makedirs(TEMP_DIRECTORY)
     
     HOST = ''
     PORT = 8883

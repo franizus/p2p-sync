@@ -24,7 +24,7 @@ def peers_server():
     global PEERS_LIST
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        client_socket.connect(('192.168.100.185', 8888))
+        client_socket.connect(('172.31.99.18', 8888))
     except socket.error as msg:
         print(msg)
     client_socket.send('request'.encode('ascii'))
